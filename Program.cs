@@ -1,43 +1,46 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using Npgsql;
 using System.Security.Cryptography;
 using System.Text;
-using Npgsql;
 
-class User
+record User(string Username, string PasswordHash);
+
+interface IAuthSystem
 {
-    public string Username { get; set; }
-    public string PasswordHash { get; set; }
+    bool Login(string username, string password);
+    void Logout();
+    void Register(string username, string password);
+    void ResetPassword(string username, string newPassword);
 }
 
-class AuthenticationSystem
+internal class ConnectedService
 {
-    private readonly string connectionString = "your_connection_string_here";
+    public readonly string connectionString = "your_connection_string_here";
 
-    private void ExecuteNonQuery(string query, Dictionary<string, object> parameters)
+    public void ExecuteNonQuery(
+        string query,
+        Dictionary<string, object> parameters)
     {
-        using (var connection = new NpgsqlConnection(connectionString))
+        using NpgsqlConnection connection = new NpgsqlConnection(connectionString);
+        connection.Open();
+
+        using var command = new NpgsqlCommand();
+        command.Connection = connection;
+        command.CommandText = query;
+
+        if (parameters != null)
         {
-            connection.Open();
-
-            using (var command = new NpgsqlCommand())
+            foreach (var parameter in parameters)
             {
-                command.Connection = connection;
-                command.CommandText = query;
-
-                if (parameters != null)
-                {
-                    foreach (var parameter in parameters)
-                    {
-                        command.Parameters.AddWithValue(parameter.Key, parameter.Value);
-                    }
-                }
-
-                command.ExecuteNonQuery();
+                command.Parameters.AddWithValue(parameter.Key, parameter.Value);
             }
         }
-    }
 
+        command.ExecuteNonQuery();
+    }
+}
+
+class AuthenticationSystem : ConnectedService, IAuthSystem
+{
     public void Register(string username, string password)
     {
         if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
@@ -139,7 +142,7 @@ class AuthenticationSystem
 
         byte[] combinedBytes = new byte[saltBytes.Length + passwordBytes.Length];
         Buffer.BlockCopy(saltBytes, 0, combinedBytes, 0, saltBytes.Length);
-                    Buffer.BlockCopy(passwordBytes, 0, combinedBytes, saltBytes.Length, passwordBytes.Length);
+        Buffer.BlockCopy(passwordBytes, 0, combinedBytes, saltBytes.Length, passwordBytes.Length);
 
         using (var sha256 = SHA256.Create())
         {
@@ -171,7 +174,7 @@ class Program
 {
     static void Main(string[] args)
     {
-        var authSystem = new AuthenticationSystem();
+        IAuthSystem authSystem = new AuthenticationSystem();
 
         // Register a new user
         try
